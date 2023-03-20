@@ -15,4 +15,4 @@ COPY --from=build-stage /xray /xray
 
 EXPOSE 8080
 
-ENTRYPOINT ["/xray"]
+ENTRYPOINT /xray -domain hj-qhzas.b4a.run
