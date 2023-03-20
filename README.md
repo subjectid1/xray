@@ -1,106 +1,153 @@
-# XRAY
+# Shadowsocks-libev Docker Image
 
-XRay is a tool for network OSINT gathering, its goal is to make some of the initial tasks of information gathering and network mapping automatic.
+[shadowsocks-libev][1] is a lightweight secured socks5 proxy for embedded
+devices and low end boxes.  It is a port of [shadowsocks][2] created by
+@clowwindy maintained by @madeye and @linusyang.
 
-## How Does it Work?
+Docker images are built for quick deployment in various computing cloud providers. For more information on docker and containerization technologies, refer to [official document][9].
 
-XRay is a very simple tool, it works this way:
+## Prepare the host
 
-1. It'll bruteforce subdomains using a wordlist and DNS requests.
-2. For every subdomain/ip found, it'll use Shodan to gather open ports and other intel.
-3. If a ViewDNS API key is provided, for every subdomain historical data will be collected.
-4. For every unique ip address, and for every open port, it'll launch specific banner grabbers and info collectors.
-5. Eventually the data is presented to the user on the web ui.
+Many cloud providers offer docker-ready environments, for instance the [CoreOS Droplet in DigitalOcean][10] or the [Container-Optimized OS in Google Cloud][11].
 
-**Grabbers and Collectors**
+If you need to install docker yourself, follow the [official installation guide][12].
 
-* **HTTP** `Server`, `X-Powered-By` and `Location` headers.
-* **HTTP** and **HTTPS** `robots.txt` disallowed entries.
-* **HTTPS** certificates chain ( with recursive subdomain grabbing from CN and Alt Names ).
-* **HTML** `title` tag.
-* **DNS** `version.bind.` and `hostname.bind.` records.
-* **MySQL**, **SMTP**, **FTP**, **SSH**, **POP** and **IRC** banners.
+## Pull the image
 
-## Notes
+```bash
+$ docker pull shadowsocks/shadowsocks-libev
+```
+This pulls the latest release of shadowsocks-libev.
 
-**Shodan API Key**
+You can also choose to pull a previous release or to try the bleeding edge build:
+```bash
+$ docker pull shadowsocks/shadowsocks-libev:<tag>
+$ docker pull shadowsocks/shadowsocks-libev:edge
+```
+> A list of supported tags can be found at [Docker Hub][13].
 
-The [shodan.io](https://www.shodan.io/) API key parameter ( `-shodan-key KEY` ) is optional, however if not specified, no service fingerprinting will be performed and a lot less information will be shown (basically it just gonna be DNS subdomain enumeration).
+## Start a container
 
-**ViewDNS API Key**
+```bash
+$ docker run -p 8388:8388 -p 8388:8388/udp -d --restart always shadowsocks/shadowsocks-libev:latest
+```
+This starts a container of the latest release with all the default settings, which is equivalent to
+```bash
+$ ss-server -s 0.0.0.0 -p 8388 -k "$(hostname)" -m aes-256-gcm -t 300 -d "8.8.8.8,8.8.4.4" -u
+```
+> **Note**: It's the hostname in the container that is used as the password, not that of the host.
 
-If a [ViewDNS](http://viewdns.info/) API key parameter ( `-viewdns-key KEY` ) is passed, domain historical data will also be retrieved.
+### With custom port
 
+In most cases you'll want to change a thing or two, for instance the port which the server listens on. This is done by changing the `-p` arguments.
 
-**Anonymity and Legal Issues**
+Here's an example to start a container that listens on `28388` (both TCP and UDP):
+```bash
+$ docker run -p 28388:8388 -p 28388:8388/udp -d --restart always shadowsocks/shadowsocks-libev
+```
 
-The software will rely on your main DNS resolver in order to enumerate subdomains, also, several connections might be directly established from your host to the computers of the network you're scanning in order to grab banners from open ports. Technically, you're just connecting to public addresses with open ports (and **there's no port scanning involved**, as such information is grabbed indirectly using Shodan API), but you know, someone might not like such behaviour.
+### With custom password
 
-If I were you, I'd find a way to proxify the whole process ... #justsaying
+Another thing you may want to change is the password. To change that, you can pass your own password as an environment variable when starting the container.
 
-## Building a Docker image
+Here's an example to start a container with `9MLSpPmNt` as the password:
+```bash
+$ docker run -e PASSWORD=9MLSpPmNt -p 8388:8388 -p 8388:8388/udp -d --restart always shadowsocks/shadowsocks-libev
+```
+> :warning: Click [here][6] to generate a strong password to protect your server.
 
-To build a Docker image with the latest version of XRay:
+### With password as a mounted file or a Docker secret (swarm only)
 
-    git clone https://github.com/evilsocket/xray.git
-    cd xray
-    docker build -t xraydocker .
+Instead of hardcoding a password to the docker-compose file or `docker run` command, you can mount in a file that contains the password. To do so, pass the path that you mounted to the container as the `PASSWORD_FILE` environment variable.
 
-Once built, XRay can be started within a Docker container using the following:
+If you are running Docker Swarm, you can also utilize Docker secrets. To do so, pass the name of the secret as the `PASSWORD_SECRET` environment variable. If you specify both `PASSWORD_FILE` and `PASSWORD_SECRET`, the latter will take effect.
 
-    docker run --rm -it -p 8080:8080 xraydocker xray -address 0.0.0.0 -shodan-key shodan_key_here -domain example.com 
+This is a sample `docker-compose.yml` file that uses the external Docker secret named `shadowsocks` as the password.
 
-## Manual Compilation
+```yaml
+shadowsocks:
+  image: shadowsocks/shadowsocks-libev
+  ports:
+    - "8388:8388"
+  environment:
+    - METHOD=aes-256-gcm
+    - PASSWORD_SECRET=shadowsocks
+  secrets:
+    - shadowsocks
+```
 
-Make sure you are using **Go >= 1.7**, that your installation is working properly, that you have set the `$GOPATH` variable and you have appended `$GOPATH/bin` to your `$PATH`.
+This is a sample `docker service create` command that uses the external Docker secret named `shadowsocks` as the password.
 
-Then:
+```bash
+docker service create -e PASSWORD_SECRET=shadowsocks -p 8388:8388 -p 8388:8388/udp --secret shadowsocks shadowsocks/shadowsocks-libev
+```
 
-    go get github.com/evilsocket/xray
-    cd $GOPATH/src/github.com/evilsocket/xray/
-    make
+### With other customizations
+Besides `PASSWORD`, the image also defines the following environment variables that you can customize:
+* `SERVER_ADDR`: the IP/domain to bind to, defaults to `0.0.0.0`
+* `SERVER_ADDR_IPV6`: the IPv6 address to bind to, defaults to `::0`
+* `METHOD`: encryption method to use, defaults to `aes-256-gcm`
+* `TIMEOUT`: defaults to `300`
+* `DNS_ADDRS`: DNS servers to redirect NS lookup requests to, defaults to `8.8.8.8,8.8.4.4`
+* `TZ`: Timezone, defaults to `UTC`
 
-You'll find the executable in the `build` folder.
+Additional arguments supported by `ss-server` can be passed with the environment variable `ARGS`, for instance to start in verbose mode:
+```bash
+$ docker run -e ARGS=-v -p 8388:8388 -p 8388:8388/udp -d --restart always shadowsocks/shadowsocks-libev:latest
+```
 
-## Usage
+## Use docker-compose to manage (optional)
 
-    Usage: xray -shodan-key YOUR_SHODAN_API_KEY -domain TARGET_DOMAIN
-    Options:
-      -address string
-            IP address to bind the web ui server to. (default "127.0.0.1")
-      -consumers int
-            Number of concurrent consumers to use for subdomain enumeration. (default 16)
-      -domain string
-            Base domain to start enumeration from.
-      -port int
-            TCP port to bind the web ui server to. (default 8080)
-      -preserve-domain
-            Do not remove subdomain from the provided domain name.
-      -session string
-            Session file name. (default "<domain-name>-xray-session.json")
-      -shodan-key string
-            Shodan API key.
-      -viewdns-key string
-            ViewDNS API key.
-      -wordlist string
-            Wordlist file to use for enumeration. (default "wordlists/default.lst")
+It is very handy to use [docker-compose][7] to manage docker containers.
+You can download the binary at <https://github.com/docker/compose/releases>.
 
-Example:
+This is a sample `docker-compose.yml` file.
 
-    # xray -shodan-key yadayadayadapicaboo... -viewdns-key foobarsomethingsomething... -domain fbi.gov
+```yaml
+shadowsocks:
+  image: shadowsocks/shadowsocks-libev
+  ports:
+    - "8388:8388"
+  environment:
+    - METHOD=aes-256-gcm
+    - PASSWORD=9MLSpPmNt
+  restart: always
+```
 
-    ____  ___
-    \   \/  /
-     \     RAY v 1.0.0b
-     /    by Simone 'evilsocket' Margaritelli
-    /___/\  \
-          \_/
+It is highly recommended that you setup a directory tree to make things easy to manage.
 
-    @ Saving session to fbi.gov-xray-session.json
-    @ Web UI running on http://127.0.0.1:8080/
+```bash
+$ mkdir -p ~/fig/shadowsocks/
+$ cd ~/fig/shadowsocks/
+$ curl -sSLO https://github.com/shadowsocks/shadowsocks-libev/raw/master/docker/alpine/docker-compose.yml
+$ docker-compose up -d
+$ docker-compose ps
+```
 
-## License
+## Finish
 
-XRay was made with ♥  by [Simone Margaritelli](https://www.evilsocket.net/) and it's released under the GPL 3 license.
+At last, download shadowsocks client [here][8].
+Don't forget to share internet with your friends.
 
-The files in the `wordlists` folder have been taken from various open source tools accross several weeks and I don't remember all of them. If you find the wordlist of your project here and want to be mentioned, feel free to open an issue or send a pull request.
+```yaml
+{
+    "server": "your-vps-ip",
+    "server_port": 8388,
+    "local_address": "0.0.0.0",
+    "local_port": 1080,
+    "password": "9MLSpPmNt",
+    "timeout": 600,
+    "method": "aes-256-gcm"
+}
+```
+
+[1]: https://github.com/shadowsocks/shadowsocks-libev
+[2]: https://shadowsocks.org/en/index.html
+[6]: https://duckduckgo.com/?q=password+12&t=ffsb&ia=answer
+[7]: https://github.com/docker/compose
+[8]: https://shadowsocks.org/en/download/clients.html
+[9]: https://docs.docker.com/
+[10]: https://www.digitalocean.com/products/linux-distribution/coreos/
+[11]: https://cloud.google.com/container-optimized-os/
+[12]: https://docs.docker.com/install/
+[13]: https://hub.docker.com/r/shadowsocks/shadowsocks-libev/tags/
