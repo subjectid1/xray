@@ -9,7 +9,7 @@ ENV TIMEOUT=300
 ENV DNS_ADDRS="8.8.8.8,8.8.4.4"
 ENV TZ=UTC
 ENV ARGS=
-WORKDIR /
+WORKDIR ./
 COPY . /tmp/repo
 RUN set -x \
  # Build environment setup
